@@ -18,17 +18,30 @@
 
 package org.wso2.andes.store.rdbms;
 
-import org.apache.log4j.Logger;
-import org.wso2.andes.configuration.util.ConfigurationProperties;
-import org.wso2.andes.kernel.*;
-
-import javax.sql.DataSource;
-import java.sql.*;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+
+import javax.sql.DataSource;
+
+import org.apache.log4j.Logger;
+import org.wso2.andes.configuration.util.ConfigurationProperties;
+import org.wso2.andes.kernel.AndesException;
+import org.wso2.andes.kernel.AndesMessageMetadata;
+import org.wso2.andes.kernel.AndesMessagePart;
+import org.wso2.andes.kernel.AndesRemovableMetadata;
+import org.wso2.andes.kernel.DurableStoreConnection;
+import org.wso2.andes.kernel.MessageStore;
+import org.wso2.carbon.metrics.manager.Level;
+import org.wso2.carbon.metrics.manager.MetricManager;
+import org.wso2.carbon.metrics.manager.Timer;
+import org.wso2.carbon.metrics.manager.Timer.Context;
 
 /**
  * ANSI SQL based message store implementation. Message persistence related methods are implemented
@@ -53,8 +66,39 @@ public class RDBMSMessageStoreImpl implements MessageStore {
      */
     private DataSource datasource;
 
+    
+    
+    private Timer storeMessagePartTimer = MetricManager.timer(Level.INFO, MetricManager.name(this.getClass(), "storeMessagePart"));
+    
+    private Timer deleteMessagePartsTimer = MetricManager.timer(Level.INFO, MetricManager.name(this.getClass(), "deleteMessageParts"));
+    
+    private Timer getContentTimer = MetricManager.timer(Level.INFO, MetricManager.name(this.getClass(), "getContent"));
+    
+    private Timer addMetaDataListTimer = MetricManager.timer(Level.INFO, MetricManager.name(this.getClass(), "addMetaData(List"));
+    
+    private Timer addMetaDataTimer = MetricManager.timer(Level.INFO, MetricManager.name(this.getClass(), "addMetaData(AndesMessageMetadata"));
+
+    private Timer addMetaDataToQueueTimer = MetricManager.timer(Level.INFO, MetricManager.name(this.getClass(), "addMetaDataToQueue"));
+
+    private Timer addMetaDataToQueueListTimer = MetricManager.timer(Level.INFO, MetricManager.name(this.getClass(), "addMetadataToQueueList"));
+    
+    private Timer updateMetaDataInformationTimer = MetricManager.timer(Level.INFO, MetricManager.name(this.getClass(), "updateMetaDataInformation"));
+    
+    private Timer addMetadataToBatchTimer = MetricManager.timer(Level.INFO, MetricManager.name(this.getClass(), "addMetadataToBatch"));
+    
+
+    private Timer getMetaDataTimer = MetricManager.timer(Level.INFO, MetricManager.name(this.getClass(), "getMetaData"));
+
+    private Timer getMetaDataListTimer = MetricManager.timer(Level.INFO, MetricManager.name(this.getClass(), "getMetaDataList"));
+
+	private Timer getNextNMessageMetadataFromQueueTimer = MetricManager.timer(Level.INFO, MetricManager.name(this.getClass(), "getNextNMessageMetadataFromQueue"));
+
+	private Timer deleteMessageMetadataFromQueueTimer = MetricManager.timer(Level.INFO, MetricManager.name(this.getClass(), "deleteMessageMetadataFromQueue"));
+
+    
     public RDBMSMessageStoreImpl() {
         queueMap = new ConcurrentHashMap<String, Integer>();
+        
     }
 
     /**
@@ -80,8 +124,9 @@ public class RDBMSMessageStoreImpl implements MessageStore {
     public void storeMessagePart(List<AndesMessagePart> partList) throws AndesException {
         Connection connection = null;
         PreparedStatement preparedStatement = null;
+        Context context = storeMessagePartTimer.start();
         try {
-
+        	
             connection = getConnection();
             connection.setAutoCommit(false);
 
@@ -99,6 +144,9 @@ public class RDBMSMessageStoreImpl implements MessageStore {
             rollback(connection, RDBMSConstants.TASK_STORING_MESSAGE_PARTS);
             throw new AndesException("Error occurred while adding message content to DB ", e);
         } finally {
+        	
+        	context.stop();
+        	
             close(preparedStatement, RDBMSConstants.TASK_STORING_MESSAGE_PARTS);
             close(connection, RDBMSConstants.TASK_STORING_MESSAGE_PARTS);
         }
@@ -113,6 +161,9 @@ public class RDBMSMessageStoreImpl implements MessageStore {
 
         Connection connection = null;
         PreparedStatement preparedStatement = null;
+        
+        Context context = deleteMessagePartsTimer.start();
+        
         try {
             connection = getConnection();
             connection.setAutoCommit(false);
@@ -127,6 +178,7 @@ public class RDBMSMessageStoreImpl implements MessageStore {
             rollback(connection, RDBMSConstants.TASK_DELETING_MESSAGE_PARTS);
             throw new AndesException("Error occurred while deleting messages from DB ", e);
         } finally {
+        	context.stop();
             close(preparedStatement, RDBMSConstants.TASK_DELETING_MESSAGE_PARTS);
             close(connection, RDBMSConstants.TASK_DELETING_MESSAGE_PARTS);
         }
@@ -142,6 +194,9 @@ public class RDBMSMessageStoreImpl implements MessageStore {
         Connection connection = null;
         PreparedStatement preparedStatement = null;
         ResultSet results = null;
+        
+        Context context = getContentTimer.start();
+        
         try {
             connection = getConnection();
             preparedStatement = connection.prepareStatement(RDBMSConstants.PS_RETRIEVE_MESSAGE_PART);
@@ -161,6 +216,8 @@ public class RDBMSMessageStoreImpl implements MessageStore {
             throw new AndesException("Error occurred while retrieving message content from DB" +
                     " [msg_id=" + messageId + "]", e);
         } finally {
+        	context.stop();
+        	
             close(results, RDBMSConstants.TASK_RETRIEVING_MESSAGE_PARTS);
             close(preparedStatement, RDBMSConstants.TASK_RETRIEVING_MESSAGE_PARTS);
             close(connection, RDBMSConstants.TASK_RETRIEVING_MESSAGE_PARTS);
@@ -176,6 +233,9 @@ public class RDBMSMessageStoreImpl implements MessageStore {
 
         Connection connection = null;
         PreparedStatement preparedStatement = null;
+        
+        Context context = addMetaDataListTimer.start();
+        
         try {
             connection = getConnection();
             connection.setAutoCommit(false);
@@ -196,6 +256,7 @@ public class RDBMSMessageStoreImpl implements MessageStore {
             rollback(connection, RDBMSConstants.TASK_ADDING_METADATA_LIST);
             throw new AndesException("Error occurred while inserting metadata list to queues ", e);
         } finally {
+        	context.stop();
             close(preparedStatement, RDBMSConstants.TASK_ADDING_METADATA_LIST);
             close(connection, RDBMSConstants.TASK_ADDING_METADATA_LIST);
         }
@@ -209,6 +270,9 @@ public class RDBMSMessageStoreImpl implements MessageStore {
 
         Connection connection = null;
         PreparedStatement preparedStatement = null;
+        
+        Context context = addMetaDataTimer.start();
+        
         try {
             connection = getConnection();
             connection.setAutoCommit(false);
@@ -228,6 +292,9 @@ public class RDBMSMessageStoreImpl implements MessageStore {
             rollback(connection, RDBMSConstants.TASK_ADDING_METADATA);
             throw new AndesException("Error occurred while inserting message metadata to queue ", e);
         } finally {
+        	
+        	context.stop();
+        	
             close(preparedStatement, RDBMSConstants.TASK_ADDING_METADATA);
             close(connection, RDBMSConstants.TASK_ADDING_METADATA);
         }
@@ -242,6 +309,9 @@ public class RDBMSMessageStoreImpl implements MessageStore {
 
         Connection connection = null;
         PreparedStatement preparedStatement = null;
+        
+        Context context = addMetaDataToQueueTimer.start();
+        
         try {
             connection = getConnection();
             connection.setAutoCommit(false);
@@ -259,6 +329,9 @@ public class RDBMSMessageStoreImpl implements MessageStore {
             throw new AndesException(
                     "Error occurred while inserting message metadata to queue " + queueName, e);
         } finally {
+        	
+        	context.stop();
+        	
             close(preparedStatement, RDBMSConstants.TASK_ADDING_METADATA_TO_QUEUE + queueName);
             close(connection, RDBMSConstants.TASK_ADDING_METADATA_TO_QUEUE + queueName);
         }
@@ -273,6 +346,9 @@ public class RDBMSMessageStoreImpl implements MessageStore {
 
         Connection connection = null;
         PreparedStatement preparedStatement = null;
+
+        Context context = addMetaDataToQueueListTimer.start();
+        
         try {
             connection = getConnection();
             connection.setAutoCommit(false);
@@ -292,6 +368,9 @@ public class RDBMSMessageStoreImpl implements MessageStore {
             throw new AndesException(
                     "Error occurred while inserting message metadata list to queue " + queueName, e);
         } finally {
+        	
+        	context.stop();
+        	
             close(preparedStatement, RDBMSConstants.TASK_ADDING_METADATA_LIST_TO_QUEUE + queueName);
             close(connection, RDBMSConstants.TASK_ADDING_METADATA_LIST_TO_QUEUE + queueName);
         }
@@ -337,6 +416,9 @@ public class RDBMSMessageStoreImpl implements MessageStore {
             AndesException {
         Connection connection = null;
         PreparedStatement preparedStatement = null;
+        
+        Context context = updateMetaDataInformationTimer.start();
+        
         try {
             connection = getConnection();
             connection.setAutoCommit(false);
@@ -359,6 +441,9 @@ public class RDBMSMessageStoreImpl implements MessageStore {
             rollback(connection, RDBMSConstants.TASK_UPDATING_META_DATA);
             throw new AndesException("Error occurred while updating message metadata list.", e);
         } finally {
+        	
+        	context.stop();
+        	
             close(preparedStatement, RDBMSConstants.TASK_UPDATING_META_DATA);
             close(connection, RDBMSConstants.TASK_UPDATING_META_DATA);
         }
@@ -375,10 +460,17 @@ public class RDBMSMessageStoreImpl implements MessageStore {
     private void addMetadataToBatch(PreparedStatement preparedStatement,
                                     AndesMessageMetadata metadata,
                                     final String queueName) throws SQLException {
+    	
+    	
+    	Context context = addMetadataToBatchTimer.start();
+    	
         preparedStatement.setLong(1, metadata.getMessageID());
         preparedStatement.setInt(2, getCachedQueueID(queueName));
         preparedStatement.setBytes(3, metadata.getMetadata());
         preparedStatement.addBatch();
+        
+        context.stop();
+        
     }
 
     /**
@@ -451,6 +543,9 @@ public class RDBMSMessageStoreImpl implements MessageStore {
         Connection connection = null;
         PreparedStatement preparedStatement = null;
         ResultSet results = null;
+        
+        Context context = getMetaDataTimer.start(); 
+        
         try {
             connection = getConnection();
             preparedStatement = connection.prepareStatement(RDBMSConstants.PS_SELECT_METADATA);
@@ -464,7 +559,10 @@ public class RDBMSMessageStoreImpl implements MessageStore {
             throw new AndesException("error occurred while retrieving message " +
                     "metadata for msg id:" + messageId, e);
         } finally {
-            String task = RDBMSConstants.TASK_RETRIEVING_METADATA + messageId;
+            
+        	context.stop();
+        	
+        	String task = RDBMSConstants.TASK_RETRIEVING_METADATA + messageId;
             close(results, task);
             close(preparedStatement, task);
             close(connection, task);
@@ -483,6 +581,9 @@ public class RDBMSMessageStoreImpl implements MessageStore {
         Connection connection = null;
         PreparedStatement preparedStatement = null;
         ResultSet resultSet = null;
+        
+        Context context = getMetaDataListTimer.start();
+        
         try {
             connection = getConnection();
             preparedStatement = connection
@@ -510,6 +611,9 @@ public class RDBMSMessageStoreImpl implements MessageStore {
             throw new AndesException("Error occurred while retrieving messages between msg id "
                     + firstMsgId + " and " + lastMsgID + " from queue " + storageQueueName, e);
         } finally {
+        	
+        	context.stop();
+        	
             String task = RDBMSConstants.TASK_RETRIEVING_METADATA_RANGE_FROM_QUEUE + storageQueueName;
             close(resultSet, task);
             close(preparedStatement, task);
@@ -530,6 +634,10 @@ public class RDBMSMessageStoreImpl implements MessageStore {
         Connection connection = null;
         PreparedStatement preparedStatement = null;
         ResultSet results = null;
+        
+        
+        Context  context = getNextNMessageMetadataFromQueueTimer.start(); 
+        
         try {
             connection = getConnection();
             preparedStatement = connection
@@ -558,6 +666,9 @@ public class RDBMSMessageStoreImpl implements MessageStore {
             throw new AndesException("error occurred while retrieving message metadata from queue ",
                     e);
         } finally {
+        	
+        	context.stop();
+        	
             close(results, RDBMSConstants.TASK_RETRIEVING_NEXT_N_METADATA_FROM_QUEUE);
             close(preparedStatement, RDBMSConstants.TASK_RETRIEVING_NEXT_N_METADATA_FROM_QUEUE);
             close(connection, RDBMSConstants.TASK_RETRIEVING_NEXT_N_METADATA_FROM_QUEUE);
@@ -575,6 +686,9 @@ public class RDBMSMessageStoreImpl implements MessageStore {
 
         Connection connection = null;
         PreparedStatement preparedStatement = null;
+        
+        Context context = deleteMessageMetadataFromQueueTimer.start();
+        
         try {
             int queueID = getCachedQueueID(storageQueueName);
 
@@ -599,6 +713,9 @@ public class RDBMSMessageStoreImpl implements MessageStore {
             throw new AndesException("error occurred while deleting message metadata from queue ",
                     e);
         } finally {
+        	
+        	context.stop();
+        	
             String task = RDBMSConstants.TASK_DELETING_METADATA_FROM_QUEUE + storageQueueName;
             close(preparedStatement, task);
             close(connection, task);
