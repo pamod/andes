@@ -129,6 +129,19 @@
             <groupId>commons-jxpath</groupId>
             <artifactId>commons-jxpath</artifactId>
         </dependency>
+        <!-- Level DB Dependencies -->
+        <dependency>
+            <groupId>org.iq80.leveldb</groupId>
+            <artifactId>leveldb-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.iq80.leveldb</groupId>
+            <artifactId>leveldb</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.fusesource.leveldbjni</groupId>
+            <artifactId>leveldbjni</artifactId>
+        </dependency>
     </dependencies>
 
     <properties>
@@ -155,7 +168,7 @@
             org.apache.commons.configuration.*,
             org.apache.commons.jxpath.*,
             org.fusesource.hawtbuf.*,
-            org.fusesource.hawtdb*,
+            org.iq80.leveldb.*;-split-package:=merge-last,
             org.wso2.andes.*;-split-package:=merge-last,
             org.apache.mina.*;-split-package:=merge-last,
             org.dna.mqtt.*;-split-package:=merge-last,
